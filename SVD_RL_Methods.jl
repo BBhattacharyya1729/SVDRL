@@ -16,7 +16,7 @@ function euler(dda,n_controls::Int64,n_steps::Int64,Δt::Float64)
 end
 
 
-function accel_SVD_rollout(dda::Matrix{Float64},system::QuantumSystem, n_steps::Int64,Δt::Float64)
+function accel_SVD_rollout(dda::Matrix{Float64},system::QuantumSystem, n_steps::Int64,Δt::Float64; weighted_modes::Bool=false)
     dda⃗ = reshape(dda, length(system.H_drives) * n_steps)
 
     function U⃗(dda⃗)
@@ -25,10 +25,19 @@ function accel_SVD_rollout(dda::Matrix{Float64},system::QuantumSystem, n_steps::
         return unitary_rollout(a,ones(n_steps)*Δt, system)[:,end]
     end
 
-    V = svd(ForwardDiff.jacobian(dda⃗ -> U⃗(dda⃗), dda⃗)).V
+    _,σ,V = svd(ForwardDiff.jacobian(dda⃗ -> U⃗(dda⃗), dda⃗))
+    
     accel_modes = [reshape(V[:,i], length(system.H_drives) , n_steps) for i in range(1,size(V)[end])]
-   
-    return [euler(dda,length(system.H_drives),n_steps,Δt) for dda in accel_modes]
+    control_modes = [euler(dda,length(system.H_drives),n_steps,Δt) for dda in accel_modes]
+
+    if(!weighted_modes)
+        return control_modes
+    end
+
+    σ = σ/(maximum(σ))
+    σ = [x<=1e-5 ? 1e-5 : x for x ∈ σ]    
+    
+    return [c/(maximum(abs.(c))) * σ[i] for (i,c) ∈ enumerate(control_modes)]
 end
 
 
@@ -72,4 +81,4 @@ function perturb_system(system::QuantumSystem,ϵ::Vector{Float64})
     return QuantumSystem(H_drift,H_drives)
 end
 
-relu(x)=[i<=1e-10 ? 1e-10 : i for i ∈ x]
+relu(x)=[i<=1e-5 ? 1e-5 : i for i ∈ x]
